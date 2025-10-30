@@ -136,7 +136,12 @@ class _NotesHomePageState extends State<NotesHomePage> {
     });
 
     try {
-      await IsolateHelper.syncNotesToDB(_unsyncedNotes);
+      // Get database instance to pass to isolate helper
+      final dbHelper = DatabaseHelper.instance;
+      final db = await dbHelper.database;
+
+      // Sync notes using isolate
+      await IsolateHelper.syncNotesToDB(_unsyncedNotes, db);
 
       setState(() {
         _unsyncedNotes.clear();
