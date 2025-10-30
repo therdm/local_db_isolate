@@ -1,46 +1,30 @@
-import 'dart:isolate';
 import '../database/database_helper.dart';
 import '../models/note.dart';
 
+/// Helper class for syncing notes to database
+/// 
+/// Note: Sqflite uses platform channels which cannot be accessed from spawned isolates.
+/// The database operations run on background threads managed by the native platform,
+/// so explicit Dart isolates are not needed for non-blocking behavior.
 class IsolateHelper {
+  /// Syncs notes to database using a transaction for atomicity
+  /// 
+  /// While this doesn't use a separate Dart isolate (due to sqflite's platform
+  /// channel architecture), the database operations are still non-blocking
+  /// as they run on platform-managed background threads.
   static Future<void> syncNotesToDB(List<Note> notes) async {
-    final receivePort = ReceivePort();
+    final dbHelper = DatabaseHelper.instance;
+    final db = await dbHelper.database;
     
-    await Isolate.spawn(
-      _syncNotesIsolate,
-      _IsolateData(
-        sendPort: receivePort.sendPort,
-        notes: notes,
-      ),
-    );
-
-    // Wait for the isolate to finish
-    await receivePort.first;
-  }
-
-  static Future<void> _syncNotesIsolate(_IsolateData data) async {
-    try {
-      final dbHelper = DatabaseHelper.instance;
-      
-      for (final note in data.notes) {
-        await dbHelper.insertOrReplaceNote(note);
+    // Use transaction for better performance and atomicity
+    await db.transaction((txn) async {
+      for (final note in notes) {
+        await txn.insert(
+          'notes',
+          note.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
       }
-      
-      // Send completion signal
-      data.sendPort.send(true);
-    } catch (e) {
-      // Send error signal
-      data.sendPort.send(false);
-    }
+    });
   }
-}
-
-class _IsolateData {
-  final SendPort sendPort;
-  final List<Note> notes;
-
-  _IsolateData({
-    required this.sendPort,
-    required this.notes,
-  });
 }
